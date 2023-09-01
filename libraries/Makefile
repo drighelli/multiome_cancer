@@ -4,7 +4,7 @@ wrkrs = 8
 
 HLTY: REP1_HLTY REP2_HLTY REP3_HLTY
 
-CNCR: REP1_CNCR REP2_CNCR REP3_CNCR
+CNCR: REP1_CNCR REP2_CNCR 
 
 REP1_CNCR:
 	cellranger-arc count --id=$@ \
