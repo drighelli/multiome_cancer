@@ -25,10 +25,12 @@ lapply(seq_along(srr), function(i)
 ## Based on the information retrieved from 
 
 rep3 cancer RNAseq
-mv SRR22482667_1.fastq.gz  SRR22482667_S1_L001_I1_001.fastq.gz
-mv SRR22482667_2.fastq.gz  SRR22482667_S1_L001_R1_001.fastq.gz
-mv SRR22482667_3.fastq.gz  SRR22482667_S1_L001_R2_001.fastq.gz
-mv SRR22482667_4.fastq.gz  SRR22482667_S1_L001_R3_001.fastq.gz
+mv SRR21960678_1.fastq.gz  SRR21960678_S1_L001_I1_001.fastq.gz
+mv SRR21960678_2.fastq.gz  SRR21960678_S1_L001_R1_001.fastq.gz
+# mv SRR21960678_3.fastq.gz  SRR21960678_S1_L001_R2_001.fastq.gz
+# mv SRR21960678_4.fastq.gz  SRR21960678_S1_L001_R3_001.fastq.gz
+mv SRR21960678_S1_L001_R2_001.fastq.gz  SRR21960678_S1_L001_I2_001.fastq.gz
+mv SRR21960678_S1_L001_R3_001.fastq.gz  SRR21960678_S1_L001_R2_001.fastq.gz
 
 mv SRR22482666_1.fastq.gz SRR22482666_S1_L001_I1_001.fastq.gz
 mv SRR22482666_2.fastq.gz  SRR22482666_S1_L001_R1_001.fastq.gz
@@ -39,9 +41,33 @@ mv SRR22482667_1.fastq.gz SRR22482667_S1_L001_I1_001.fastq.gz
 mv SRR22482667_2.fastq.gz  SRR22482667_S1_L001_R1_001.fastq.gz
 mv SRR22482667_3.fastq.gz  SRR22482667_S1_L001_R2_001.fastq.gz
 mv SRR22482667_4.fastq.gz  SRR22482667_S1_L001_R3_001.fastq.gz
+################
+
+##Rep1 healthy
+mv SRR21960687_1.fastq.gz SRR21960687_S1_L001_I1_001.fastq.gz
+mv SRR21960687_2.fastq.gz  SRR21960687_S1_L001_R1_001.fastq.gz
+mv SRR21960687_3.fastq.gz  SRR21960687_S1_L001_I2_001.fastq.gz
+mv SRR21960687_4.fastq.gz  SRR21960687_S1_L001_R2_001.fastq.gz
+
+mv SRR21960688_1.fastq.gz SRR21960688_S1_L001_I1_001.fastq.gz
+mv SRR21960688_2.fastq.gz  SRR21960688_S1_L001_R1_001.fastq.gz
+mv SRR21960688_3.fastq.gz  SRR21960688_S1_L001_I2_001.fastq.gz
+mv SRR21960688_4.fastq.gz  SRR21960688_S1_L001_R2_001.fastq.gz
 
 
-SRR22482667
+mv SRR22482677_1.fastq.gz SRR22482677_S1_L001_I1_001.fastq.gz
+mv SRR22482677_2.fastq.gz  SRR22482677_S1_L001_R1_001.fastq.gz
+mv SRR22482677_3.fastq.gz  SRR22482677_S1_L001_R2_001.fastq.gz
+mv SRR22482677_4.fastq.gz  SRR22482677_S1_L001_R3_001.fastq.gz
+
+mv SRR22482678_1.fastq.gz SRR22482678_S1_L001_I1_001.fastq.gz
+mv SRR22482678_2.fastq.gz  SRR22482678_S1_L001_R1_001.fastq.gz
+mv SRR22482678_3.fastq.gz  SRR22482678_S1_L001_R2_001.fastq.gz
+mv SRR22482678_4.fastq.gz  SRR22482678_S1_L001_R3_001.fastq.gz
+
+###############
+
+
 # fn <- as.data.frame(readxl::read_excel("/Users/inzirio/Desktop/gDrive/works/analysis/multiome_cancer/dataset_desc.xlsx"))
 # fn <- fn[c(1:23), c(1:9)]
 # fn$rep<- gsub("rep","REP", fn$replicate)
@@ -51,28 +77,83 @@ SRR22482667
 # writexl::write_xlsx(x=fn, path="dataset_desc.xlsx")
 fn <- as.data.frame(readxl::read_excel("dataset_desc.xlsx"))
 ## [Sample Name]_S1_L00[Lane Number]_[Read Type]_001.fastq.gz
-## Read Type using R1/R2
+## Read Type using R1/R2/I1/I2 for GEX
 srs <- unique(fn$SRR)
-fn$R1 <- NA
-fn$R2 <- NA
-for(i in seq_along(srs))
+# srs <- srs[-which(srs%in%c("SRR22482666", "SRR22482667", "SRR21960678",
+#         "SRR21960687", "SRR21960688", "SRR22482677", "SRR22482678"))]
+
+
+# rename_fastqs <- function(srs, fqs)
+# {
+#     for(i in seq_along(gexsrs))
+#     {
+#         fqsr <- fqs[grep(gexsrs[i], fqs)]
+#         r12 <- NULL
+#         for(fq in fqsr)
+#         {
+#             idx <- which(fn$SRR==gexsrs)
+#             switch(strsplit(gsub(".fastq.gz","",basename(fq)),"_")[[1]][2],
+#                    "1"={
+#                        rt <- "I1"
+#                    },
+#                    "2"={rt <- "R1"},
+#                    "3"={rt <- "I2"},
+#                    "4"={rt <- "R2"},
+#             )
+#             nfn <- paste0("./", gexsrs[i],"_S1_L001_",rt,"_001.fastq.gz")
+#             message("renaming ", fq, " in ", nfn)
+#             # file.rename(from=fq, to=nfn)
+#             fn[[rt]][idx] <- paste0(basename(fq), "->", nfn)
+#         }
+#     }
+# }
+
+
+fn$F1 <- fn$F2 <- fn$F3 <- fn$F4 <- NA
+
+gexsrs <- srs[fn$omic=="scRNAseq"]
+for(i in seq_along(gexsrs))
 {
-    fqsr <- fqs[grep(srs[i], fqs)]
-    r12 <- NULL
+    fqsr <- fqs[grep(gexsrs[i], fqs)]
     for(fq in fqsr)
     {
-        rt <- paste0("R", ifelse(strsplit(gsub(".fastq.gz","",basename(fq)),"_")[[1]][2]=="1", "1", "2"))
-        nfn <- paste0("./", fn$SRR[i],"_S1_L001_",rt,"_001.fastq.gz")
+        idx <- which(fn$SRR %in% gexsrs[i])
+        switch(strsplit(gsub(".fastq.gz","",basename(fq)),"_")[[1]][2],
+               "1"={rt <- "I1"; ff <- "F1"},
+               "2"={rt <- "R1"; ff <- "F2"},
+               "3"={rt <- "I2"; ff <- "F3"},
+               "4"={rt <- "R2"; ff <- "F4"}
+        )
+        nfn <- paste0("./", gexsrs[i],"_S1_L001_",rt,"_001.fastq.gz")
         message("renaming ", fq, " in ", nfn)
-        file.rename(from=fq, to=nfn)
-        if(rt=="R1")
-        {
-            fn$R1[i] <- nfn
-        } else {
-            fn$R2[i] <- nfn
-        }
+        # file.rename(from=fq, to=nfn)
+        fn[[ff]][idx] <- paste0(basename(fq), " -> ", basename(nfn))
     }
 }
+
+
+atacsrs <- srs[fn$omic=="scATACseq"]
+for(i in seq_along(atacsrs))
+{
+    fqsr <- fqs[grep(atacsrs[i], fqs)]
+    for(fq in fqsr)
+    {
+        idx <- which(fn$SRR %in% atacsrs[i])
+        switch(strsplit(gsub(".fastq.gz","",basename(fq)),"_")[[1]][2],
+               "1"={rt <- "I1"; ff <- "F1"},
+               "2"={rt <- "R1"; ff <- "F2"},
+               "3"={rt <- "R2"; ff <- "F3"},
+               "4"={rt <- "R3"; ff <- "F4"}
+        )
+        nfn <- paste0("./", atacsrs[i],"_S1_L001_",rt,"_001.fastq.gz")
+        message("renaming ", fq, " in ", nfn)
+        fn[[ff]][idx] <- paste0(basename(fq), " -> ", basename(nfn))
+        # file.rename(from=fq, to=nfn)
+    }
+}
+
+
+
 
 .importdesign <- function(exp_design)
 {
