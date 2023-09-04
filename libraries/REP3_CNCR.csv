@@ -1,4 +1,4 @@
 fastqs,sample,library_type
-/mnt/europa/drighelli/multiome_cancer,SRR21960678,Gene Expression
-/mnt/europa/drighelli/multiome_cancer,SRR22482666,Chromatin Accessibility
-/mnt/europa/drighelli/multiome_cancer,SRR22482667,Chromatin Accessibility
+/mnt/europa/drighelli/multiome_cancer/fastqs,SRR21960678,Gene Expression
+/mnt/europa/drighelli/multiome_cancer/fastqs,SRR22482666,Chromatin Accessibility
+/mnt/europa/drighelli/multiome_cancer/fastqs,SRR22482667,Chromatin Accessibility
