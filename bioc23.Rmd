@@ -325,12 +325,8 @@ scope.
 Indeed, further versions of this function will implement other methods, 
 i.e. `Azimuth` from Rahul Satija lab.
 
-```{r}
-# allen <- logNormCounts(allen)
+```{r, eval=FALSE}
 scelist <- lapply(scelist, function(sce){assignLabels(sce, allen, "subclass_label")})
-# sce <- assignLabels(sce, allen, "subclass_label")
-# colData(sce)
-# head(sce$SingleR)
 ```
 
 # Visualizing cell types
@@ -340,13 +336,23 @@ understanding their clustering and this can be easily done with the `plotTSNE`
 function of the `scater` package.
 
 ```{r}
+lapply(scelist, function(sce){table(sce$SingleR)})
 plotTSNE(sce, colour_by="SingleR")
 ```
+
+For teaching purposes we now subset the celltypes to the ones with the higher 
+amount of cells.
+
+```{r}
+celltypes <- c("Astro", "Oligo", "CR")
+scelist <- lapply(scelist, function(sce){sce[,sce$SingleR %in% celltypes]})
+```
+
 
 # Differential Analysis
 
 We selected two main approaches for doing differential analysis of these data,
-by applying muscat (working on single cell data) and by using edgeR (working on
+by applying muscat (working on single cell data) and by using `edgeR` (working on
 bulk data).
 
 Because the second one produced better results on our datasets, we are going to 
@@ -404,7 +410,6 @@ altExp(sce_pseudo) <- sce_pseudo_atac
 ```
 
 
-
 # ATAC Replicates Consensus Peaks
 
 But things become a little bit more complicated when having multiple ATAC
@@ -413,14 +418,82 @@ it could be problematic to compute a pseudo-bulk counts, because of the
 differences across the peaks (each experiment has different number of peaks
 and coordinates).
 
-At the moment, to provide a solution to this issue, we are implementing 
-(still needing some bug fixing and testing) a solution to this problem by 
-adapting the `finalRegions` function present in the 
-`DEScan2` package, which will return a new `SingleCellExperiment` object with 
-the pseudo-count matrix computed on the multiple experiments.
-
-Until then we can use the DEScan2 already implemented functionalities for bulk 
+We can use the `DEScan2` already implemented functionalities for bulk 
 data, but with some precautions.
+
+
+# Creating BAM files per cell types
+
+To properly construct a new count matrix with DEScan2 for our consensus peaks, 
+we need the BAM files organized per cell types.
+
+We can use the `10xMultiomeTools::createBamCt` function to do this operation.
+
+This function requires a few external software to operate properly:
++ `sinto`: a python software to create BAM files per each cell type starting from 
+a list of barcodes (the ones of the specified cell type)
++ `samtools`: useful to sort and index the new BAM files
+
+NB This is not needed if you already have the BAM files organized by cell types.
+
+```{r}
+# detach("package:TENxMultiomeTools", unload=TRUE)
+# BiocManager::install("drighelli/TENxMultiomeTools", update=FALSE, ask=FALSE)
+# library(TENxMultiomeTools)
+scelist <- lapply(scelist, function(sce){
+    lapply(unique(sce$SingleR), function(ct){
+        createBamCt(sce, cellType=ct, cellTypesCol="SingleR",
+            bamdir=metadata(sce)$path, outdir="bioc23/bams_allct", ncores=10)   
+    })
+})
+
+```
+
+# DEScan2 package
+
+The `DEScan2` package was developed to work with genomic bulk data, it implements
+three major steps:
+
++ Peak Calling: `findPeaks` a peak caller for identify the regions present in 
+the BAM/BED files of the experiment (not suggested for single cell data)
++ consensus peaks: `finalRegions` given a list of GenomicRanges (GR) identifies the 
+common peaks across the given list and returns a new (GR) with the consensus list
+of the found peaks.
++ count matrix construction: `countFinalRegions` starting from a GR and a directory
+with BAM files, it constructs a new matrix of counts with the peaks on the rows
+and the bamfiles (samples) on the column.
+
+## A few details
+
+Before working with these functions we first provide a few details to better 
+understand how to setup them:
+
++ `finalRegions`:
+++ `peakSamplesGRangesList`: a GenomicRangesList, each element of the list is a 
+GR, associated to a sample. 
+++ `zThreshold`: a numeric value allowing to remove all the peaks with a score less
+then it. We set this to 0 if we want to keep all the peaks.
+++ `minCarriers`: a numeric value allowing to keep all the peaks present at least
+in `minCarriers` samples.
+++ `scorecolname`: character indicating the name of the column where the peaks 
+score are stored.
+++ **Returns**: a GR with the consensus peaks and some additional info
++++ `k-carriers`: number of samples where the peak has been found 
+(an interval between [`minCarriers`, `length(peakSamplesGRangesList)`])
++++ `n-peaks`: the total number of peaks where the new consensus peak is 
+originating from
+
++ `countFinalRegions`:
+++ `regionsGRanges`: a GR, ideally the GR of our consensus peak list, but it can 
+be any GR.
+++ `readsFilePath`: the `filepath` of BAM or BED files to compute the coverage of the peaks.
+++ `fileType`: one of BAM or BED
+++ `minCarriers`: same as for `finalRegions`, the minimum number of samples where
+the peak needs to be present, otherwise it will be discarded.
+++ **Returns**: a `SummarizedExperiment` with the peaks on the `rowRanges` and a 
+new matrix of counts on the main assay.
+
+## Working with single cell ATAC data
 
 DEScan2 finalRegions needs a score column for working properly, but when working
 with 10x default peaks this score is not provided.
@@ -434,94 +507,44 @@ in the rowRanges of the SCE and use this column in the DEScan2 finalRegions func
 The score is defined as the sum of the counts of all the Barcodes assigned to a 
 specific cell type.
 
-To compute this for all the cell types we include these opearations in a loop
-over all the celltypes present in the SingleCellExperiment
+To compute this for all the cell types we include these operations in a loop
+over all the celltypes present in the SingleCellExperiments.
 
 ```{r}
-## DEScan2
-## 
+
 bams <- list.files("bioc23/bams_allct", pattern="*.bam", full.names=TRUE)
 bams <- bams[grep("ATAC", bams)]
-dir.create("bioc23/bams_allct/ATAC", recursive=TRUE, showWarnings=FALSE)
-file.rename(bams, file.path("bioc23/bams_allct/ATAC", basename(bams)))
+bamdir <- "bioc23/bams_allct/ATAC"
+dir.create(bamdir, recursive=TRUE, showWarnings=FALSE)
+file.rename(bams, file.path(bamdir, basename(bams)))
 
-celltypes <- intersect(unique(scelist[[1]]$SingleR), unique(scelist[[2]]$SingleR))
 lapply(celltypes, function(ct)
 {
-        grl <- lapply(scelist, function(sce) {
-            # this function helps to create a score for the CT
-            sce <- buildATACScores(sce, cellType=ct)
-            rowRanges(altExp(sce))}) 
-        gr <- finalRegions(GRangesList(grl), 
-            zThreshold=0, minCarriers=1, saveFlag=FALSE, 
-            scorecolname="score", verbose=TRUE,
-            BPPARAM=BiocParallel::MulticoreParam(workers=1)) 
-        grSE <- countFinalRegions(gr, readsFilePath=bamdir, 
-                        fileType="bam", minCarriers=1)
-    })
+    grl <- lapply(scelist, function(sce) {
+        # this function helps to create a score for the CT
+        sce <- buildATACScores(sce, cellType=ct)
+        rowRanges(altExp(sce))}) 
+    # we now work only with the rowRanges of both the experiments
+    gr <- finalRegions(GRangesList(grl), 
+        zThreshold=0, minCarriers=1, saveFlag=FALSE, 
+        scorecolname="score", verbose=TRUE,
+        BPPARAM=BiocParallel::MulticoreParam(workers=1)) 
+    grSE <- countFinalRegions(gr, readsFilePath=bamdir, 
+                    fileType="bam", minCarriers=1)
 })
-
-
-
-
-
-### show histogram on number of carriers and peaks integrated ####
-
-bams <- list.files("bioc23/bams", pattern="*sorted.bam$", recursive=TRUE, full.names=TRUE)
-bams <- bams[grep(pattern="ATAC", x=bams)]
-
-
-lapply(bams, function(b){
-    system(paste0("mv ", b, " bioc23/bams", basename(b)))
-})
-
-
-lapply(bams, function(b){
-    system(paste0("mv ", b, ".bai bioc23/bams", basename(b),".bai"))
-})
-
-
-
-bamdir <- "bioc23/"
-
-
-
 
 ```
 
 
+## Future development
+
+At the moment, to provide a solution to this issue, we are implementing 
+(still needing some bug fixing and testing) a solution to this problem by 
+adapting the `finalRegions` function present in the 
+`DEScan2` package, which will return a new `SingleCellExperiment` object with 
+the pseudo-count matrix computed on the multiple experiments.
 
 
-
-```{r}
-# detach("package:TENxMultiomeTools", unload=TRUE)
-# BiocManager::install("drighelli/TENxMultiomeTools", update=FALSE, ask=FALSE)
-# library(TENxMultiomeTools)
-scelist <- lapply(scelist, function(sce){
-    lapply(unique(sce$SingleR), function(ct){
-        createBamCt(sce, cellType=ct, cellTypesCol="SingleR",
-            bamdir=metadata(sce)$path, outdir="bioc23/bams_allct", ncores=10)   
-    })
-})
-
-# 
-# 
-# bams <- list.files("bioc23/bams", pattern="*.bam$", recursive=TRUE, full.names=TRUE)
-# lapply(bams, function(bam)
-# {
-#     cmd <- paste0("samtools sort -@ 10 ", bam," -o ", gsub(".bam$", "", bam), "_sorted.bam")
-#     print(cmd)
-#     system(cmd)
-# })
-# bamss <- list.files("bioc23/bams", pattern="*_sorted.bam$", recursive=TRUE, full.names=TRUE)
-# lapply(bamss, function(bam)
-# {
-#     cmd <- paste0("samtools index -b ", bam, " -@ 10 ")
-#     print(cmd)
-#     system(cmd)
-# })
-
-```
 
 Additionally, both previous operations on a single experiment can be made with 
 our wrapper `computePseudoBulk` in a unique instruction that computes 
