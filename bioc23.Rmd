@@ -78,6 +78,9 @@ information about the peaks in a `GenomicRanges` format where the genomic
 coordinates are in the form of Chromosome, Start and End while additional data 
 are stored in the `mcols` `DataFrame.`
 
+N.B. The `read10xMultiome` function will be deprecated in favor of the 
+exported functionalities of the `TENxIO` package.
+
 ```{r, eval=TRUE}
 path="multiome_website_mouse_old/outs/"
 sce <- read10xMultiome(
@@ -142,7 +145,6 @@ to fragments < 147 bp (nucleosome-free)
     + normalized score on the number of reads around (2000bp up/down) the TSS 
 
 ```{r}
-
 scelist <- lapply(scelist, computeSignacMetrics, annotation)
 ```
 
@@ -170,7 +172,6 @@ function.
 Of course the default parameters can be chosen with an heuristic approach.
 
 ```{r}
-
 scelist <- lapply(scelist, function(sce)
 {
     computeFilterCellsMetrics(sce, metric="quantile",
@@ -196,10 +197,14 @@ with `TRUE`/`FALSE` values indicating the kept/filtered cells, by aid of the
 `filterCellsBy` and `customColName` parameters.
 
 ```{r}
-plotFilteredCells(sce, name="test", inout="out")
+for(sce in scelist)
+{
+    plotFilteredCells(sce, name="test", inout="out")
+}
+
 ```
 
-## Doublets
+## Doublets --> Move after annotation
 
 Another Quality Control on the cells can be done by computing doublets scores.
 We implemented a wrapper on the `scDblFinder` package, 
@@ -225,10 +230,14 @@ investigations can be done when cell types labels will be assigned to our cell
 and looking where the doublets fall in our dataset.
 
 ```{r}
-sce <- runPCA(sce, ntop=length(rownames(sce)))
-sce <- runTSNE(sce, dimred="PCA")
-plotTSNE(sce, colour_by="dbl.scores") + theme_bw()
-plotTSNE(sce, colour_by="dbl.calls") + theme_bw()
+for(sce in scelist)
+{
+    sce <- runPCA(sce, ntop=length(rownames(sce)))
+    sce <- runTSNE(sce, dimred="PCA")
+    plotTSNE(sce, colour_by="dbl.scores") + theme_bw()
+    plotTSNE(sce, colour_by="dbl.calls") + theme_bw()
+}
+
 ```
 
 ## Filtering Cells
@@ -247,12 +256,6 @@ scelist <- lapply(scelist, function(sce) {
     sce <- runTSNE(sce, dimred="PCA")
     sce
 })
-# scelist <- lapply(scelist, logNormCounts)
-# scelist <- lapply(scelist, function)
-# # sce <- sce[,sce$in_signac]
-# sce <- logNormCounts(sce)
-# sce <- runPCA(sce, ntop=length(rownames(sce)))
-# sce <- runTSNE(sce, dimred="PCA")
 ```
 
 
@@ -389,9 +392,10 @@ At this point it is possible to apply and visualize the data like bulk data.
 plotPCA(sce_pseudo, colour_by="SingleR")
 ```
 
+# ATAC Analysis
 
-The same operation can be made on a single ATAC experiment obtaining the same 
-number of columns as for the RNA.
+The same operation for pseudo bulk can be made on a single ATAC experiment 
+obtaining the same number of columns as for the RNA.
 
 ```{r}
 sce_pseudo_atac <- aggregateAcrossCells(altExp(sce), use.assay.type="counts",
@@ -400,8 +404,99 @@ altExp(sce_pseudo) <- sce_pseudo_atac
 ```
 
 
-```{r}
 
+# ATAC Replicates Consensus Peaks
+
+But things become a little bit more complicated when having multiple ATAC
+experiments, coming from different conditions,
+it could be problematic to compute a pseudo-bulk counts, because of the 
+differences across the peaks (each experiment has different number of peaks
+and coordinates).
+
+At the moment, to provide a solution to this issue, we are implementing 
+(still needing some bug fixing and testing) a solution to this problem by 
+adapting the `finalRegions` function present in the 
+`DEScan2` package, which will return a new `SingleCellExperiment` object with 
+the pseudo-count matrix computed on the multiple experiments.
+
+Until then we can use the DEScan2 already implemented functionalities for bulk 
+data, but with some precautions.
+
+DEScan2 finalRegions needs a score column for working properly, but when working
+with 10x default peaks this score is not provided.
+
+A possible work-around can be done by using the counts/logcounts assay for the 
+ATAC data.
+
+By aid of the 10xMultiome buildATACScores we are able to create a new score column
+in the rowRanges of the SCE and use this column in the DEScan2 finalRegions function.
+
+The score is defined as the sum of the counts of all the Barcodes assigned to a 
+specific cell type.
+
+To compute this for all the cell types we include these opearations in a loop
+over all the celltypes present in the SingleCellExperiment
+
+```{r}
+## DEScan2
+## 
+bams <- list.files("bioc23/bams_allct", pattern="*.bam", full.names=TRUE)
+bams <- bams[grep("ATAC", bams)]
+dir.create("bioc23/bams_allct/ATAC", recursive=TRUE, showWarnings=FALSE)
+file.rename(bams, file.path("bioc23/bams_allct/ATAC", basename(bams)))
+
+celltypes <- intersect(unique(scelist[[1]]$SingleR), unique(scelist[[2]]$SingleR))
+lapply(celltypes, function(ct)
+{
+        grl <- lapply(scelist, function(sce) {
+            # this function helps to create a score for the CT
+            sce <- buildATACScores(sce, cellType=ct)
+            rowRanges(altExp(sce))}) 
+        gr <- finalRegions(GRangesList(grl), 
+            zThreshold=0, minCarriers=1, saveFlag=FALSE, 
+            scorecolname="score", verbose=TRUE,
+            BPPARAM=BiocParallel::MulticoreParam(workers=1)) 
+        grSE <- countFinalRegions(gr, readsFilePath=bamdir, 
+                        fileType="bam", minCarriers=1)
+    })
+})
+
+
+
+
+
+### show histogram on number of carriers and peaks integrated ####
+
+bams <- list.files("bioc23/bams", pattern="*sorted.bam$", recursive=TRUE, full.names=TRUE)
+bams <- bams[grep(pattern="ATAC", x=bams)]
+
+
+lapply(bams, function(b){
+    system(paste0("mv ", b, " bioc23/bams", basename(b)))
+})
+
+
+lapply(bams, function(b){
+    system(paste0("mv ", b, ".bai bioc23/bams", basename(b),".bai"))
+})
+
+
+
+bamdir <- "bioc23/"
+
+
+
+
+```
+
+
+
+
+
+```{r}
+# detach("package:TENxMultiomeTools", unload=TRUE)
+# BiocManager::install("drighelli/TENxMultiomeTools", update=FALSE, ask=FALSE)
+# library(TENxMultiomeTools)
 scelist <- lapply(scelist, function(sce){
     lapply(unique(sce$SingleR), function(ct){
         createBamCt(sce, cellType=ct, cellTypesCol="SingleR",
@@ -427,58 +522,6 @@ scelist <- lapply(scelist, function(sce){
 # })
 
 ```
-
-
-```{r}
-## DEScan2
-## 
-scelist1 <- lapply(scelist, function(sce) {
-    buildATACScores(sce, cellType="Astro")
-})
-grl <- lapply(scelist1, function(sce) {rowRanges(altExp(sce))})
-gr <- finalRegions(GRangesList(grl), 
-            zThreshold=0, minCarriers=1, saveFlag=FALSE, 
-            scorecolname="score", verbose=TRUE,#scoreBy="groups",
-            BPPARAM=BiocParallel::MulticoreParam(workers=1)) 
-
-
-### show histogram on number of carriers and peaks integrated ####
-
-bams <- list.files("bioc23/bams", pattern="*sorted.bam$", recursive=TRUE, full.names=TRUE)
-bams <- bams[grep(pattern="ATAC", x=bams)]
-
-
-lapply(bams, function(b){
-    system(paste0("mv ", b, " bioc23/bams", basename(b)))
-})
-
-
-lapply(bams, function(b){
-    system(paste0("mv ", b, ".bai bioc23/bams", basename(b),".bai"))
-})
-
-
-
-bamdir <- "bioc23/"
-
-grSE <- countFinalRegions(gr, readsFilePath=bamdir, 
-                        fileType="bam", minCarriers=1)
-
-
-```
-
-
-But things become a little bit more complicated when having multiple ATAC
-experiments, coming from different conditions,
-it could be problematic to compute a pseudo-bulk counts, because of the 
-differences across the peaks (each experiment has different number of peaks
-and coordinates).
-
-At the moment, to provide a solution to this issue, we are implementing 
-(still needing some bug fixing and testing) a solution to this problem by 
-adapting the `finalRegions` function present in the 
-`DEScan2` package, which will return a new `SingleCellExperiment` object with 
-the pseudo-count matrix computed on the multiple experiments.
 
 Additionally, both previous operations on a single experiment can be made with 
 our wrapper `computePseudoBulk` in a unique instruction that computes 
